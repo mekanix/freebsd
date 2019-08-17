@@ -1298,6 +1298,19 @@ format_mac(struct buf_pr *bp, uint8_t *addr, uint8_t *mask)
 }
 
 static void
+print_mac_lookup(struct buf_pr *bp, const struct format_opts *fo, ipfw_insn *cmd)
+{
+	char *t;
+	uint32_t *a = ((ipfw_insn_u32 *)cmd)->d;
+
+	t = table_search_ctlv(fo->tstate, cmd->arg1);
+	bprintf(bp, " MAC table(%s", t);
+	if (F_LEN(cmd) == F_INSN_SIZE(ipfw_insn_u32))
+		bprintf(bp, ",%u", *a);
+	bprintf(bp, ")");
+}
+
+static void
 print_mac(struct buf_pr *bp, ipfw_insn_mac *mac)
 {
 
@@ -1510,6 +1523,9 @@ print_instruction(struct buf_pr *bp, const struct format_opts *fo,
 			bprintf(bp, " %s", pe->p_name);
 		else
 			bprintf(bp, " %u", cmd->arg1);
+		break;
+	case O_MACADDR2_LOOKUP:
+		print_mac_lookup(bp, fo, cmd);
 		break;
 	case O_MACADDR2:
 		print_mac(bp, insntod(cmd, mac));
@@ -3371,7 +3387,7 @@ fill_iface(ipfw_insn_if *cmd, char *arg, int cblen, struct tidx *tstate)
 		errx(EX_DATAERR, "bad ip address ``%s''", arg);
 }
 
-static void
+void
 get_mac_addr_mask(const char *p, uint8_t *addr, uint8_t *mask)
 {
 	int i;
@@ -3483,11 +3499,20 @@ fill_cmd(ipfw_insn *cmd, enum ipfw_opcodes opcode, int flags, uint16_t arg)
  * two microinstructions, and returns the pointer to the last one.
  */
 static ipfw_insn *
-add_mac(ipfw_insn *cmd, char *av[], int cblen)
+add_mac(ipfw_insn *cmd, char *av[], int cblen, struct tidx *tstate)
 {
 	ipfw_insn_mac *mac;
 
-	if ( ( av[0] == NULL ) || ( av[1] == NULL ) )
+	if (av[0] == NULL)
+		errx(EX_DATAERR, "MAC dst src");
+
+	if (strncmp(av[0], "table(", 6) == 0) {
+		fill_table(cmd, av[0], O_MACADDR2_LOOKUP, tstate);
+		CHECK_CMDLEN;
+		return (cmd);
+	}
+
+	if (av[1] == NULL)
 		errx(EX_DATAERR, "MAC dst src");
 
 	cmd->opcode = O_MACADDR2;
@@ -4811,8 +4836,9 @@ read_options:
 			break;
 
 		case TOK_MAC:
-			if (add_mac(cmd, av, cblen))
-				av += 2;
+			if (add_mac(cmd, av, cblen, tstate))
+				av += ((strncmp(*av, "table(", 6) == 0) ?
+				    1 : 2);
 			break;
 
 		case TOK_MACTYPE:

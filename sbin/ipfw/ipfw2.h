@@ -264,6 +264,7 @@ enum tokens {
 	TOK_UNLOCK,
 	TOK_VLIST,
 	TOK_OLIST,
+	TOK_ZEROCNT,
 
 	/* NAT64 tokens */
 	TOK_NAT64STL,
@@ -349,6 +350,8 @@ int do_get3(int optname, struct _ip_fw3_opheader *op3, size_t *optlen);
 struct in6_addr;
 void n2mask(struct in6_addr *mask, int n);
 int contigmask(uint8_t *p, int len);
+
+void get_mac_addr_mask(const char *p, uint8_t *addr, uint8_t *mask);
 
 /*
  * Forward declarations to avoid include way too many headers.

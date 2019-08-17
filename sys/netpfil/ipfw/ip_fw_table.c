@@ -187,6 +187,66 @@ get_table_value(struct ip_fw_chain *ch, struct table_config *tc, uint32_t kidx)
 	return (&pval[kidx]);
 }
 
+static int
+zero_cnt_entry(struct ip_fw_chain *ch, ip_fw3_opheader *op3,
+    struct sockopt_data *sd)
+{
+	ipfw_obj_tentry *tent;
+	ipfw_obj_header *oh;
+	struct tid_info ti;
+	struct table_config *tc;
+	struct table_algo *ta;
+	struct table_info *kti;
+	struct namedobj_instance *ni;
+	int error;
+	size_t sz;
+
+	/* Check minimum header size */
+	sz = sizeof(*oh) + sizeof(*tent);
+	if (sd->valsize != sz)
+		return (EINVAL);
+
+	oh = (struct _ipfw_obj_header *)ipfw_get_sopt_header(sd, sz);
+	tent = (ipfw_obj_tentry *)(oh + 1);
+
+	/* Basic length checks for TLVs */
+	if (oh->ntlv.head.length != sizeof(oh->ntlv))
+		return (EINVAL);
+
+	objheader_to_ti(oh, &ti);
+	ti.type = oh->ntlv.type;
+	ti.uidx = tent->idx;
+
+	IPFW_UH_RLOCK(ch);
+	ni = CHAIN_TO_NI(ch);
+
+	/*
+	 * Find existing table and check its type .
+	 */
+	ta = NULL;
+	if ((tc = find_table(ni, &ti)) == NULL) {
+		IPFW_UH_RUNLOCK(ch);
+		return (ESRCH);
+	}
+
+	/* check table type */
+	if (tc->no.subtype != ti.type) {
+		IPFW_UH_RUNLOCK(ch);
+		return (EINVAL);
+	}
+
+	kti = KIDX_TO_TI(ch, tc->no.kidx);
+	ta = tc->ta;
+
+	if (ta->zero_cnt_tentry == NULL)
+		return (ENOTSUP);
+
+	error = ta->zero_cnt_tentry(tc->astate, kti, tent);
+	IPFW_UH_RUNLOCK(ch);
+
+	return (error);
+}
+
 
 /*
  * Checks if we're able to insert/update entry @tei into table
@@ -1031,6 +1091,7 @@ manage_table_ent_v1(struct ip_fw_chain *ch, ip_fw3_opheader *op3,
 	ptei = tei_buf;
 	ptent = tent;
 	for (i = 0; i < ctlv->count; i++, ptent++, ptei++) {
+		ptei->mac = ptent->mac;
 		ptei->paddr = &ptent->k;
 		ptei->subtype = ptent->subtype;
 		ptei->masklen = ptent->masklen;
@@ -1091,6 +1152,7 @@ find_table_entry(struct ip_fw_chain *ch, ip_fw3_opheader *op3,
 	struct table_algo *ta;
 	struct table_info *kti;
 	struct table_value *pval;
+	struct timeval boottime;
 	struct namedobj_instance *ni;
 	int error;
 	size_t sz;
@@ -1139,6 +1201,10 @@ find_table_entry(struct ip_fw_chain *ch, ip_fw3_opheader *op3,
 	if (error == 0) {
 		pval = get_table_value(ch, tc, tent->v.kidx);
 		ipfw_export_table_value_v1(pval, &tent->v.value);
+		if (tent->timestamp != 0) {
+			getboottime(&boottime);
+			tent->timestamp += boottime.tv_sec;
+		}
 	}
 	IPFW_UH_RUNLOCK(ch);
 
@@ -1667,13 +1733,37 @@ ipfw_unref_table(struct ip_fw_chain *ch, uint16_t kidx)
  */
 int
 ipfw_lookup_table(struct ip_fw_chain *ch, uint16_t tbl, uint16_t plen,
-    void *paddr, uint32_t *val)
+    void *paddr, uint32_t *val, uint8_t *ea, void **te)
 {
 	struct table_info *ti;
 
 	ti = KIDX_TO_TI(ch, tbl);
 
-	return (ti->lookup(ti, paddr, plen, val));
+	return (ti->lookup(ti, paddr, plen, val, ea, te));
+}
+
+/*
+ * Update the table entry counter.
+ */
+void
+ipfw_cnt_update_tentry(struct ip_fw_chain *ch, uint16_t tbl, uint16_t plen,
+    void *e, int pktlen)
+{
+	struct namedobj_instance *ni;
+	struct table_algo *ta;
+	struct table_config *tc;
+	struct table_info *ti;
+
+	ni = CHAIN_TO_NI(ch);
+	tc = (struct table_config *)ipfw_objhash_lookup_kidx(ni, tbl);
+	if (tc == NULL)
+		return;
+	ta = tc->ta;
+	if (ta->cnt_tentry == NULL)
+		return;
+
+	ti = KIDX_TO_TI(ch, tbl);
+	ta->cnt_tentry(tc->astate, ti, plen, e, pktlen);
 }
 
 /*
@@ -2013,6 +2103,7 @@ struct dump_args {
 	ta_foreach_f *f;
 	void *farg;
 	ipfw_obj_tentry tent;
+	time_t boottime;
 };
 
 static int
@@ -2171,6 +2262,7 @@ dump_table_v1(struct ip_fw_chain *ch, ip_fw3_opheader *op3,
 	struct tid_info ti;
 	struct table_config *tc;
 	struct table_algo *ta;
+	struct timeval boottime;
 	struct dump_args da;
 	uint32_t sz;
 
@@ -2209,6 +2301,8 @@ dump_table_v1(struct ip_fw_chain *ch, ip_fw3_opheader *op3,
 	da.ti = KIDX_TO_TI(ch, tc->no.kidx);
 	da.tc = tc;
 	da.sd = sd;
+	getboottime(&boottime);
+	da.boottime = boottime.tv_sec;
 
 	ta = tc->ta;
 
@@ -2448,6 +2542,9 @@ dump_table_tentry(void *e, void *arg)
 
 	pval = get_table_value(da->ch, da->tc, tent->v.kidx);
 	ipfw_export_table_value_v1(pval, &tent->v.value);
+
+	if (tent->timestamp != 0)
+		tent->timestamp += da->boottime;
 
 	return (0);
 }
@@ -2808,6 +2905,15 @@ classify_flow(ipfw_insn *cmd, uint16_t *puidx, uint8_t *ptype)
 	return (0);
 }
 
+static int
+classify_mac(ipfw_insn *cmd, uint16_t *puidx, uint8_t *ptype)
+{
+	*puidx = cmd->arg1;
+	*ptype = IPFW_TABLE_MAC2;
+
+	return (0);
+}
+
 static void
 update_arg1(ipfw_insn *cmd, uint16_t idx)
 {
@@ -2952,6 +3058,16 @@ static struct opcode_obj_rewrite opcodes[] = {
 		.opcode = O_IP_FLOW_LOOKUP,
 		.etlv = IPFW_TLV_TBL_NAME,
 		.classifier = classify_flow,
+		.update = update_arg1,
+		.find_byname = table_findbyname,
+		.find_bykidx = table_findbykidx,
+		.create_object = create_table_compat,
+		.manage_sets = table_manage_sets,
+	},
+	{
+		.opcode = O_MACADDR2_LOOKUP,
+		.etlv = IPFW_TLV_TBL_NAME,
+		.classifier = classify_mac,
 		.update = update_arg1,
 		.find_byname = table_findbyname,
 		.find_bykidx = table_findbykidx,
@@ -3292,6 +3408,7 @@ static struct ipfw_sopt_handler	scodes[] = {
 	{ IP_FW_TABLE_XSWAP,	0,	HDIR_SET,	swap_table },
 	{ IP_FW_TABLES_ALIST,	0,	HDIR_GET,	list_table_algo },
 	{ IP_FW_TABLE_XGETSIZE,	0,	HDIR_GET,	get_table_size },
+	{ IP_FW_TABLE_XZEROCNT,	0,	HDIR_SET,	zero_cnt_entry },
 };
 
 static int

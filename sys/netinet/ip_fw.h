@@ -112,6 +112,8 @@ typedef struct _ip_fw3_opheader {
 #define	IP_FW_DUMP_SOPTCODES	116	/* Dump available sopts/versions */
 #define	IP_FW_DUMP_SRVOBJECTS	117	/* Dump existing named objects */
 
+#define	IP_FW_TABLE_XZEROCNT	118	/* zero table entry counters */
+
 #define	IP_FW_NAT64STL_CREATE	130	/* Create stateless NAT64 instance */
 #define	IP_FW_NAT64STL_DESTROY	131	/* Destroy stateless NAT64 instance */
 #define	IP_FW_NAT64STL_CONFIG	132	/* Modify stateless NAT64 instance */
@@ -286,6 +288,8 @@ enum ipfw_opcodes {		/* arguments (4 byte each)	*/
 	O_EXTERNAL_DATA,	/* variable length data */
 
 	O_SKIP_ACTION,		/* none				*/
+
+	O_MACADDR2_LOOKUP,	/* arg1=table number, u32=value	*/
 
 	O_LAST_OPCODE		/* not an opcode!		*/
 };
@@ -744,7 +748,8 @@ struct _ipfw_dyn_rule {
 #define	IPFW_TABLE_INTERFACE	2	/* Table for holding interface names */
 #define	IPFW_TABLE_NUMBER	3	/* Table for holding ports/uid/gid/etc */
 #define	IPFW_TABLE_FLOW		4	/* Table for holding flow data */
-#define	IPFW_TABLE_MAXTYPE	4	/* Maximum valid number */
+#define	IPFW_TABLE_MAC2		5	/* Table for holding 2 mac addresses */
+#define	IPFW_TABLE_MAXTYPE	5	/* Maximum valid number */
 
 #define	IPFW_TABLE_CIDR	IPFW_TABLE_ADDR	/* compat */
 
@@ -856,6 +861,11 @@ struct tflow_entry {
 	} a;
 };
 
+struct mac_entry {
+	u_char addr[12];	/* dst[6] + src[6] */
+	u_char mask[12];	/* dst[6] + src[6] */
+};
+
 typedef struct _ipfw_table_value {
 	uint32_t	tag;		/* O_TAG/O_TAGGED */
 	uint32_t	pipe;		/* O_PIPE/O_QUEUE */
@@ -883,12 +893,17 @@ typedef struct	_ipfw_obj_tentry {
 	uint8_t		spare0;
 	uint16_t	idx;		/* Table name index		*/
 	uint16_t	spare1;
+	uint64_t	bcnt;		/* Byte counter */
+	uint64_t	mac;		/* MAC address for mixed enties */
+	uint64_t	pcnt;		/* Packet counter */
+	time_t		timestamp;	/* Timestamp of last match */
 	union {
 		/* Longest field needs to be aligned by 8-byte boundary	*/
 		struct in_addr		addr;	/* IPv4 address		*/
 		uint32_t		key;		/* uid/gid/port	*/
 		struct in6_addr		addr6;	/* IPv6 address 	*/
 		char	iface[IF_NAMESIZE];	/* interface name	*/
+		struct mac_entry	mac;	/* 2 mac addr:mask	*/
 		struct tflow_entry	flow;	
 	} k;
 	union {

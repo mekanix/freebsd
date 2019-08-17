@@ -62,6 +62,7 @@ struct tentry_info {
 	uint8_t		subtype;
 	uint16_t	flags;		/* record flags			*/
 	uint32_t	value;		/* value index			*/
+	uint64_t	mac;
 };
 #define	TEI_FLAGS_UPDATE	0x0001	/* Add or update rec if exists	*/
 #define	TEI_FLAGS_UPDATED	0x0002	/* Entry has been updated	*/
@@ -111,6 +112,10 @@ typedef int ta_find_tentry(void *ta_state, struct table_info *ti,
 typedef void ta_dump_tinfo(void *ta_state, struct table_info *ti, 
     ipfw_ta_tinfo *tinfo);
 typedef uint32_t ta_get_count(void *ta_state, struct table_info *ti);
+typedef void ta_cnt_tentry(void *ta_state, struct table_info *ti,
+    uint32_t keylen, void *e, int pktlen);
+typedef int ta_zero_cnt_tentry(void *ta_state, struct table_info *ti,
+    ipfw_obj_tentry *tent);
 
 struct table_algo {
 	char		name[16];
@@ -139,6 +144,8 @@ struct table_algo {
 	ta_print_config	*print_config;
 	ta_dump_tinfo	*dump_tinfo;
 	ta_get_count	*get_count;
+	ta_cnt_tentry	*cnt_tentry;
+	ta_zero_cnt_tentry	*zero_cnt_tentry;
 };
 #define	TA_FLAG_DEFAULT		0x01	/* Algo is default for given type */
 #define	TA_FLAG_READONLY	0x02	/* Algo does not support modifications*/
