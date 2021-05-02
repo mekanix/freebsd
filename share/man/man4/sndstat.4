@@ -51,7 +51,7 @@ device allows callers to enumerate PCM audio devices available for use. In
 other words, it provides means to get the list of all audio devices available
 to the system.
 .Sh IOCTLS
-For all ioctl calls use the following structure:
+For ioctl calls that take an argument, the following structure is used:
 .Bd -literal -offset indent
 struct sndstioc_nv_arg {
 	size_t nbytes;
