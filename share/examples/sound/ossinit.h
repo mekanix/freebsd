@@ -1,9 +1,9 @@
+#include <sys/soundcard.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/soundcard.h>
 #include <unistd.h>
 
 
@@ -222,6 +222,14 @@ oss_init(config_t *config)
 	/* When all is set and ready to go, get the size of buffer */
 	error = ioctl(config->fd, SNDCTL_DSP_GETOSPACE, &(config->buffer_info));
 	check_error(error, "SNDCTL_DSP_GETOSPACE");
+	if (config->buffer_info.bytes < 1) {
+		fprintf(
+		    stderr,
+		    "OSS buffer error: buffer size can not be %d\n",
+		    config->buffer_info.bytes
+		    );
+		exit(1);
+	}
 	config->sample_count = config->buffer_info.bytes / config->sample_size;
 	config->chsamples = config->sample_count / config->channels;
 }

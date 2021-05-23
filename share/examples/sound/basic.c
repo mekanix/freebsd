@@ -22,9 +22,9 @@ main()
 	 * frag_size
 	 */
 	int bytes = config.buffer_info.bytes;
-	int8_t ibuf[bytes];
-	int8_t obuf[bytes];
-	sample_t *channels = (sample_t *)malloc(bytes);
+	int8_t *ibuf = malloc(bytes);
+	int8_t *obuf = malloc(bytes);
+	sample_t *channels = malloc(bytes);
 
 	printf(
 	    "bytes: %d, fragments: %d, fragsize: %d, fragstotal: %d, samples: %d\n",
@@ -33,10 +33,10 @@ main()
 	    config.buffer_info.fragsize,
 	    config.buffer_info.fragstotal,
 	    config.sample_count
-	    );
+	);
 
 	/* Minimal engine: read input and copy it to the output */
-	while (1) {
+	for (;;) {
 		read(config.fd, ibuf, bytes);
 		oss_split(&config, (sample_t *)ibuf, channels);
 		/* All processing will happen here */
@@ -46,6 +46,8 @@ main()
 
 	/* Cleanup */
 	free(channels);
+	free(obuf);
+	free(ibuf);
 	close(config.fd);
 	return 0;
 }
