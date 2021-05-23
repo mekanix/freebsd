@@ -55,7 +55,7 @@ typedef struct config {
  * Error state is indicated by value=-1 in which case application exits
  * with error
  */
-static void
+static inline void
 check_error(const int value, const char *message)
 {
 	if (value == -1) {
@@ -67,7 +67,7 @@ check_error(const int value, const char *message)
 
 
 /* Calculate frag by giving it minimal size of buffer */
-static int
+static inline int
 size2frag(int x)
 {
 	int frag = 0;
