@@ -1,4 +1,4 @@
-To put it really shortly, general audio aplication will:
+Briefly summarised, a general audio application will:
 - open(2)
 - ioctl(2)
 - read(2)
@@ -47,7 +47,7 @@ From kernel perspective, there are few points OSS developers should be aware of:
 
 For USB the block size is according to hw.usb.uaudio.buffer_ms sysctl, meaning
 2ms at 48kHz gives 0.002 * 48000 = 96 samples per block, all multiples of this
-work well. Block size for virtual_oss, if used, should be set acordingly.
+work well. Block size for virtual_oss, if used, should be set accordingly.
 
 OSS driver insists on reading / writing a certain number of samples at a time,
 one fragment full of samples. It is bound to do so in a fixed time frame, to
